@@ -54,7 +54,14 @@ public class Router {
 		if (addr.isUnresolved())
 			throw new IllegalArgumentException("Please give a valid server/port combination");
 		
+		if (routerId >= 999)
+			throw new IllegalArgumentException("Do not use a router ID above 998");
+
 		this.routerID = routerId;
+
+		if (updateInterval < 0)
+			throw new IllegalArgumentException("Update interval cannot be negative");
+		
 		this.update = updateInterval;
 	}
 
@@ -66,11 +73,12 @@ public class Router {
 	public RtnTable start() {
 		boolean connected = relayHandshake();
 		
-		// regular operation;
-		
-		
-		
-		return new RtnTable();
+		if (connected){
+			return new RtnTable();
+		}else {
+			System.out.println("There was a problem talking with the relay server");
+			return new RtnTable();
+		}
 	}
 
 	public boolean relayHandshake(){
