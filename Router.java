@@ -90,6 +90,9 @@ public class Router {
 			}
 			forwardTable = new RtnTable(returned.getMinCost(), neighbors);
 			
+			soc.shutdownInput();
+			soc.shutdownOutput();
+			soc.close();
 		} catch (UnknownHostException e) {
 			e.printStackTrace();
 			return false;
