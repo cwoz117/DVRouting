@@ -34,7 +34,7 @@ public class Router {
 	private int updateTimer;
 	private RtnTable forwardTable;
 	private Timer t;
-	
+
 	private Socket soc;
 	ObjectOutputStream ds;
 	ObjectInputStream is;
@@ -80,12 +80,15 @@ public class Router {
 				type = returned.type;
 				if (type == DvrPacket.ROUTE){
 					if (returned.sourceid == DvrPacket.SERVER){
-							newTable(returned);
-							startTimer(updateTimer);
+						newTable(returned);
+						startTimer(updateTimer);
 					} else {
 						for (int i =0; i < forwardTable.getMinCost().length; i++){
-							//TODO Handle the routes
-							
+							if (returned.mincost[i] < forwardTable.getMinCost()[i]){
+								if (updateTable(returned)){
+									propagateUpdate();
+								}
+							}
 						}	
 					}
 				}
@@ -107,6 +110,38 @@ public class Router {
 		return forwardTable;
 	}
 
+	public final void propagateUpdate(){
+		for (int i = 0; i < forwardTable.getMinCost().length; i++){
+			int cost = forwardTable.getMinCost()[i];
+			if ((cost < DvrPacket.INFINITY) && (cost > 0)){
+				DvrPacket msg = new DvrPacket(routerID, forwardTable.getNextHop()[i], DvrPacket.ROUTE, forwardTable.getMinCost());
+				try {
+					ds.writeObject(msg);
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+
+	public boolean updateTable(DvrPacket neighbor){
+		boolean changed = false;
+		int[] mincost = forwardTable.getMinCost();
+		int[] hop = forwardTable.getNextHop();
+		int[] vector = Arrays.copyOf(neighbor.mincost, neighbor.mincost.length);
+
+		for (int i = 0; i < mincost.length; i++){
+			if (vector[i] < mincost[i]){
+				hop[i] = neighbor.sourceid;
+				mincost[i] = vector[i] + mincost[neighbor.sourceid];
+				changed = true;
+			}
+		}
+		if (changed){
+			forwardTable = new RtnTable(mincost, hop);
+		}
+		return changed;
+	}
 
 	public void relayHandshake() throws UnknownHostException, ClassNotFoundException, IOException{
 
@@ -121,7 +156,7 @@ public class Router {
 		DvrPacket returned = (DvrPacket)is.readObject();
 		newTable(returned);
 	}
-	
+
 	public void newTable(DvrPacket dvr){
 		int[] neighbors = new int[dvr.getMinCost().length];
 		for (int i = 0; i < neighbors.length; i++){
@@ -134,17 +169,7 @@ public class Router {
 		t = new Timer(true);
 		t.schedule(new TimerTask(){
 			public void run() {
-				for (int i = 0; i < forwardTable.getMinCost().length; i++){
-					int cost = forwardTable.getMinCost()[i];
-					if ((cost < DvrPacket.INFINITY) && (cost > 0)){
-						DvrPacket msg = new DvrPacket(routerID, forwardTable.getNextHop()[i], DvrPacket.ROUTE, forwardTable.getMinCost());
-						try {
-							ds.writeObject(msg);
-						} catch (IOException e) {
-							e.printStackTrace();
-						}
-					}
-				}
+				propagateUpdate();
 			}
 		}, 0, time);
 	}
