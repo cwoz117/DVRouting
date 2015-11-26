@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.*;
@@ -32,15 +33,17 @@ import java.util.*;
  *
  */
 public class Router {
-	
 	private int routerID;
-	private int update;
-	
+	private int updateTimer;
 	private RtnTable forwardTable;
-	private Socket soc;
-
-	private InetSocketAddress addr;
+	private Timer t;
 	
+	private Socket soc;
+	ObjectOutputStream ds;
+	ObjectInputStream is;
+	private InetSocketAddress addr;
+
+
 	/**
 	 * Constructor to initialize the rouer instance 
 	 * 
@@ -53,7 +56,7 @@ public class Router {
 		addr = new InetSocketAddress(serverName, serverPort);
 		if (addr.isUnresolved())
 			throw new IllegalArgumentException("Please give a valid server/port combination");
-		
+
 		if (routerId >= 999)
 			throw new IllegalArgumentException("Do not use a router ID above 998");
 
@@ -61,8 +64,8 @@ public class Router {
 
 		if (updateInterval < 0)
 			throw new IllegalArgumentException("Update interval cannot be negative");
-		
-		this.update = updateInterval;
+
+		updateTimer = updateInterval;
 	}
 
 	/**
@@ -71,49 +74,84 @@ public class Router {
 	 * @return The forwarding table of the router
 	 */
 	public RtnTable start() {
-		boolean connected = relayHandshake();
-		
-		if (connected){
-			return new RtnTable();
-		}else {
-			System.out.println("There was a problem talking with the relay server");
-			return new RtnTable();
-		}
-	}
+		try{
+			relayHandshake();
+			startTimer(updateTimer);
+			int type = 0;
+			do{
+				DvrPacket returned = (DvrPacket)is.readObject();
+				type = returned.type;
+				if (type == DvrPacket.ROUTE){
+					if (returned.sourceid == DvrPacket.SERVER){
+							newTable(returned);
+							startTimer(updateTimer);
+					} else {
+						
+						
+						
+						
+						
+					}
+				}
+			} while(type != DvrPacket.QUIT);
 
-	public boolean relayHandshake(){
-		try {
-			soc = new Socket(addr.getAddress(), addr.getPort());
-			ObjectOutputStream ds = new ObjectOutputStream(soc.getOutputStream());
-			ObjectInputStream is = new ObjectInputStream(soc.getInputStream());
-			
-			DvrPacket message = new DvrPacket(routerID, DvrPacket.SERVER,DvrPacket.HELLO);
-			ds.writeObject(message);
-			ds.flush();
-			
-			DvrPacket returned = (DvrPacket)is.readObject();
-			int[] neighbors = new int[returned.getMinCost().length];
-			for (int i = 0; i < neighbors.length; i++){
-				neighbors[i] = i;
-			}
-			forwardTable = new RtnTable(returned.getMinCost(), neighbors);
-			
 			soc.shutdownInput();
 			soc.shutdownOutput();
 			soc.close();
-		} catch (UnknownHostException e) {
+		} catch(UnknownHostException e){
+			System.out.println("Could not find relay server");
+			return forwardTable;
+		} catch(ClassNotFoundException e){
+			System.out.println("Could not understand reply from relay server");
+			return forwardTable;
+		} catch (IOException e){
 			e.printStackTrace();
-			return false;
-		} catch (IOException e) {
-			e.printStackTrace();
-			return false;
-		} catch (ClassNotFoundException e) {
-			e.printStackTrace();
-			return false;
+			return forwardTable;
 		}
-		return true;
+		return forwardTable;
 	}
 
+
+	public void relayHandshake() throws UnknownHostException, ClassNotFoundException, IOException{
+
+		soc = new Socket(addr.getAddress(), addr.getPort());
+		ds = new ObjectOutputStream(soc.getOutputStream());
+		is = new ObjectInputStream(soc.getInputStream());
+
+		DvrPacket message = new DvrPacket(routerID, DvrPacket.SERVER,DvrPacket.HELLO);
+		ds.writeObject(message);
+		ds.flush();
+
+		DvrPacket returned = (DvrPacket)is.readObject();
+		newTable(returned);
+	}
+	
+	public void newTable(DvrPacket dvr){
+		int[] neighbors = new int[dvr.getMinCost().length];
+		for (int i = 0; i < neighbors.length; i++){
+			neighbors[i] = i;
+		}
+		forwardTable = new RtnTable(dvr.getMinCost(), neighbors);
+	}
+
+	public void startTimer(int time)throws IOException{
+		t = new Timer(true);
+		t.schedule(new TimerTask(){
+			public void run() {
+				for (int i = 0; i < forwardTable.getMinCost().length; i++){
+					int cost = forwardTable.getMinCost()[i];
+					if ((cost < DvrPacket.INFINITY) && (cost > 0)){
+						DvrPacket msg = new DvrPacket(routerID, forwardTable.getNextHop()[i], DvrPacket.ROUTE, forwardTable.getMinCost());
+						try {
+							ds.writeObject(msg);
+						} catch (IOException e) {
+							e.printStackTrace();
+						}
+					}
+				}
+			}
+		}, 0, time);
+	}
 
 	/**
 	 * A simple test driver
