@@ -1,11 +1,8 @@
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.InetSocketAddress;
-import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.*;
@@ -86,11 +83,10 @@ public class Router {
 							newTable(returned);
 							startTimer(updateTimer);
 					} else {
-						
-						
-						
-						
-						
+						for (int i =0; i < forwardTable.getMinCost().length; i++){
+							//TODO Handle the routes
+							
+						}	
 					}
 				}
 			} while(type != DvrPacket.QUIT);
