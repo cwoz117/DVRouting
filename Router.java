@@ -30,6 +30,7 @@ import java.util.*;
  *
  */
 public class Router {
+
 	private int routerID;
 	private int updateTimer;
 	private RtnTable forwardTable;
@@ -81,19 +82,14 @@ public class Router {
 				if (type == DvrPacket.ROUTE){
 					if (returned.sourceid == DvrPacket.SERVER){
 						newTable(returned);
-						startTimer(updateTimer);
+						propagateUpdate();
 					} else {
-						for (int i =0; i < forwardTable.getMinCost().length; i++){
-							if (returned.mincost[i] < forwardTable.getMinCost()[i]){
-								if (updateTable(returned)){
-									propagateUpdate();
-								}
-							}
-						}	
+						if (updateTable(returned)){
+							propagateUpdate();
+						}
 					}
 				}
 			} while(type != DvrPacket.QUIT);
-
 			soc.shutdownInput();
 			soc.shutdownOutput();
 			soc.close();
@@ -110,13 +106,16 @@ public class Router {
 		return forwardTable;
 	}
 
-	public final void propagateUpdate(){
-		for (int i = 0; i < forwardTable.getMinCost().length; i++){
-			int cost = forwardTable.getMinCost()[i];
+	public synchronized void propagateUpdate(){
+		int[] mincost = forwardTable.getMinCost();
+		int[] nexthop = forwardTable.getNextHop();
+		for (int i = 0; i < mincost.length; i++){
+			int cost = mincost[i];
 			if ((cost < DvrPacket.INFINITY) && (cost > 0)){
-				DvrPacket msg = new DvrPacket(routerID, forwardTable.getNextHop()[i], DvrPacket.ROUTE, forwardTable.getMinCost());
+				DvrPacket msg = new DvrPacket(routerID, nexthop[i], DvrPacket.ROUTE, mincost);
 				try {
 					ds.writeObject(msg);
+					ds.flush();
 				} catch (IOException e) {
 					e.printStackTrace();
 				}
@@ -124,16 +123,16 @@ public class Router {
 		}
 	}
 
-	public boolean updateTable(DvrPacket neighbor){
+	public synchronized boolean updateTable(DvrPacket neighbor){
 		boolean changed = false;
 		int[] mincost = forwardTable.getMinCost();
 		int[] hop = forwardTable.getNextHop();
 		int[] vector = Arrays.copyOf(neighbor.mincost, neighbor.mincost.length);
 
 		for (int i = 0; i < mincost.length; i++){
-			if (vector[i] < mincost[i]){
+			if ((vector[i] + mincost[neighbor.sourceid]) < mincost[i]){
 				hop[i] = neighbor.sourceid;
-				mincost[i] = vector[i] + mincost[neighbor.sourceid];
+				mincost[i] = mincost[neighbor.sourceid] + vector[i];
 				changed = true;
 			}
 		}
@@ -143,8 +142,7 @@ public class Router {
 		return changed;
 	}
 
-	public void relayHandshake() throws UnknownHostException, ClassNotFoundException, IOException{
-
+	public synchronized void relayHandshake() throws UnknownHostException, ClassNotFoundException, IOException{
 		soc = new Socket(addr.getAddress(), addr.getPort());
 		ds = new ObjectOutputStream(soc.getOutputStream());
 		is = new ObjectInputStream(soc.getInputStream());
@@ -157,7 +155,7 @@ public class Router {
 		newTable(returned);
 	}
 
-	public void newTable(DvrPacket dvr){
+	public synchronized void newTable(DvrPacket dvr){
 		int[] neighbors = new int[dvr.getMinCost().length];
 		for (int i = 0; i < neighbors.length; i++){
 			neighbors[i] = i;
@@ -165,7 +163,7 @@ public class Router {
 		forwardTable = new RtnTable(dvr.getMinCost(), neighbors);
 	}
 
-	public void startTimer(int time)throws IOException{
+	public synchronized void startTimer(int time)throws IOException{
 		t = new Timer(true);
 		t.schedule(new TimerTask(){
 			public void run() {
@@ -181,7 +179,7 @@ public class Router {
 	public static void main(String[] args) {
 		String serverName = "localhost";
 		int serverPort = 2227;
-		int updateInterval = 1000;
+		int updateInterval = 10000;
 		int routerId = 0;
 
 
